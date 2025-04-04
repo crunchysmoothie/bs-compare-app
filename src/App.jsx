@@ -2,20 +2,21 @@
 import { useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js worker (make sure pdf.worker.min.mjs is in your public folder)
+// Configure PDF.js worker (ensure pdf.worker.min.mjs is in your public folder)
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('/pdf.worker.min.mjs', import.meta.url).toString();
 
 /**
  * Extract structured data from Page 1 text.
  * Expected format: "Integer Str Integer Integer Str"
- * Example: "60 Y12 3550 60 A1"
+ * Example: "60 Y12 3550 60 CL1"
  * Returns an array of objects with:
- *   - required (Integer) from the first token,
- *   - diameter (String) from the second token,
- *   - mark (String) from the fifth token.
+ *   - required: the first integer (e.g., 60),
+ *   - diameter: the second token (e.g., Y12),
+ *   - mark: the fifth token (e.g., CL1)
  */
 function extractPage1Data(text) {
-  const pattern = /\b(\d+)\s+([A-Z]\d+)\s+\d+\s+\d+\s+([A-Z]\d+)\b/g;
+  // Updated regex: last group matches one to three uppercase letters followed by digits.
+  const pattern = /\b(\d+)\s+([A-Z]\d+)\s+\d+\s+\d+\s+([A-Z]{1,3}\d+)\b/g;
   let match;
   const data = [];
   while ((match = pattern.exec(text)) !== null) {
@@ -30,15 +31,18 @@ function extractPage1Data(text) {
 
 /**
  * Extract structured data from Page 2+ text.
- * Expected format: "IntegerY<diameter>-<mark>-Integer"
- * Example: "16Y12-A1-200"
+ * Expected format: "Integer<letter><digits>-<mark>(-Integer)?"
+ * Examples:
+ *   "16Y12-A1-200" or "15R10-CL1-600" or "13R10-CL1-600"
  * Returns an array of objects with:
- *   - count (Integer) from the number before Y,
- *   - diameter (String) (e.g., "Y12"),
- *   - mark (String) (e.g., "A1").
+ *   - count: the integer before the diameter (e.g., 15),
+ *   - diameter: the letter/digits part (e.g., R10 or Y12),
+ *   - mark: the bar mark (e.g., CL1 or A1)
  */
 function extractPage2Data(text) {
-  const pattern = /\b(\d+)(Y\d+)-([A-Z]\d+)-\d+\b/g;
+  // Updated regex: Allow any uppercase letter for the diameter group.
+  // The trailing "-Integer" is optional.
+  const pattern = /\b(\d+)([A-Z]\d+)-([A-Z]{1,3}\d+)(?:-\d+)?\b/g;
   let match;
   const data = [];
   while ((match = pattern.exec(text)) !== null) {
@@ -86,7 +90,7 @@ function App() {
     }
   };
 
-  // Handle comparison: parse data from both PDFs, tally Page 2+ data, and build table rows.
+  // Handle comparison: parse data from both PDFs, group and tally Page 2+ data, and build table rows.
   const handleCompare = () => {
     const page1Data = extractPage1Data(text1);
     const page2Data = extractPage2Data(text2);
@@ -104,7 +108,7 @@ function App() {
     // Build table rows using Page 1 data.
     const tableData = page1Data.map(item => {
       const page2Entry = page2Grouped[item.mark];
-      let tally = page2Entry ? page2Entry.total : 0;
+      let tally = page2Entry ? page2Grouped[item.mark].total : 0;
       if (sectionAndLayout) {
         tally = Math.round(tally / 2);
       }
@@ -132,6 +136,7 @@ function App() {
   };
 
   // Compute mismatched bar marks for display in the text box.
+  // A row is mismatched if its difference is nonzero or if the diameter doesn't match, and it's not ignored.
   const mismatchedBars = results
     .filter(row => ((row.diff !== 0) || (!row.diameterMatch)) && !ignoredRows[row.mark])
     .map(row => row.mark)
@@ -221,6 +226,7 @@ function App() {
             <tbody>
               {results.map((row, index) => {
                 const ignore = ignoredRows[row.mark];
+                // Highlight cells if there's a mismatch and the row isn't ignored.
                 const tallyStyle = (row.diff !== 0 && !ignore) ? { backgroundColor: 'red' } : {};
                 const extractedDiameterStyle = (!row.diameterMatch && !ignore) ? { backgroundColor: 'red' } : {};
                 return (
@@ -247,7 +253,7 @@ function App() {
             </tbody>
           </table>
         ) : (
-          <p>No comparison results yet. Please upload PDFs and click Compare.</p>
+          <p style={{ textAlign: 'center' }}>No comparison results yet. Please upload PDFs and click Compare.</p>
         )}
 
         {/* Mismatched Bar Marks Text Box */}
